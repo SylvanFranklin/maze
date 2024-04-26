@@ -1,44 +1,27 @@
 <script lang="ts">
-    let size = 60;
-    let speed = 1000;
+    import { flip } from "svelte/animate";
+    import { quintOut } from "svelte/easing";
+    import { fly, scale } from "svelte/transition";
+
+    let size = 43;
+    let speed = 19;
+    enum CellType {
+        WALL,
+        EMPTY,
+        PATH,
+        START,
+        END,
+    }
 
     class Cell {
-        walls: boolean[] = [true, true, true, true];
+        type: CellType = CellType.EMPTY;
         x: number;
-        neighbor: boolean = false;
         y: number;
-        visited: boolean = false;
+        visited = false;
 
         constructor(x: number, y: number) {
             this.x = x;
             this.y = y;
-        }
-
-        get tailwind_borders() {
-            let style = "";
-
-            if (this.walls[0]) {
-                style += " border-t-2 ";
-            }
-
-            if (this.walls[1]) {
-                style += " border-r-2 ";
-            }
-
-            if (this.walls[3]) {
-                style += " border-l-2 ";
-            }
-
-            if (this.walls[4]) {
-                style += " border-b-2 ";
-            }
-
-            if (style.length > 0) {
-                style += "border-black";
-                return style;
-            } else {
-                return "border-none";
-            }
         }
     }
 
@@ -60,6 +43,81 @@
             );
     }
 
+    function get_neighbors_maze(cell: Cell) {
+        let x = cell.x;
+        let y = cell.y;
+        const chord_pairs = [
+            [x - 2, y],
+            [x, y - 2],
+            [x, y + 2],
+            [x + 2, y],
+        ];
+
+        let neighbors = [];
+
+        for (const [x, y] of chord_pairs) {
+            if (board[x] && board[y] && board[x][y].visited === false) {
+                neighbors.push(board[x][y]);
+            }
+        }
+        return neighbors;
+    }
+
+    let stop = false;
+
+    // make sure that current, is not an edge cell
+    let current = board[Math.floor(size / 2)][Math.floor(size / 2)];
+
+    function remove_ajoining_wall(cell: Cell, neighbor: Cell) {
+        let x = (cell.x + neighbor.x) / 2;
+        let y = (cell.y + neighbor.y) / 2;
+        board[x][y].type = CellType.EMPTY;
+    }
+
+    async function dijkstra_pathfind(start: Cell, end: Cell) {
+        let unvisited = board.flat();
+        let visited = [];
+        let current = start;
+        let found = false;
+
+        while (current !== end && unvisited.length > 0) {
+            unvisited = unvisited.filter((cell) => cell !== current);
+            visited.push(current);
+            let neighbors = get_neighbors(current);
+            for (const neighbor of neighbors) {
+                if (visited.includes(neighbor)) {
+                    continue;
+                }
+                if (neighbor.type === CellType.WALL) {
+                    continue;
+                }
+                if (neighbor.type === CellType.END) {
+                    found = true;
+                    break;
+                }
+                if (neighbor.type === CellType.EMPTY) {
+                    neighbor.type = CellType.PATH;
+                    board = board;
+                }
+            }
+            if (found) {
+                break;
+            }
+            let distances = neighbors.map((cell) => {
+                return {
+                    cell,
+                    distance:
+                        Math.abs(cell.x - end.x) + Math.abs(cell.y - end.y),
+                };
+            });
+            distances.sort((a, b) => a.distance - b.distance);
+            current = distances[0].cell;
+            if (speed > 0) {
+                await new Promise((r) => setTimeout(r, speed));
+            }
+        }
+    }
+
     function get_neighbors(cell: Cell) {
         let x = cell.x;
         let y = cell.y;
@@ -74,44 +132,36 @@
 
         for (const [x, y] of chord_pairs) {
             if (board[x] && board[y] && board[x][y].visited === false) {
-                board[x][y].neighbor = true;
                 neighbors.push(board[x][y]);
             }
         }
         return neighbors;
     }
 
-    function remove_ajoining_wall(cell: Cell, neighbor: Cell) {
-        let x = cell.x - neighbor.x;
-        let y = cell.y - neighbor.y;
-
-        if (x === 1) {
-            cell.walls[0] = false;
-            neighbor.walls[2] = false;
-        } else if (x === -1) {
-            cell.walls[2] = false;
-            neighbor.walls[0] = false;
-        }
-
-        if (y === 1) {
-            cell.walls[3] = false;
-            neighbor.walls[1] = false;
-        } else if (y === -1) {
-            cell.walls[1] = false;
-            neighbor.walls[3] = false;
-        }
-    }
-
-    let stop = false;
-    let current =
-        board[Math.floor(Math.random() * size)][
-            Math.floor(Math.random() * size)
-        ];
-
     async function generate_maze(cell: Cell) {
+        function get_neighbors_maze(cell: Cell) {
+            let x = cell.x;
+            let y = cell.y;
+            const chord_pairs = [
+                [x - 2, y],
+                [x, y - 2],
+                [x, y + 2],
+                [x + 2, y],
+            ];
+
+            let neighbors = [];
+
+            for (const [x, y] of chord_pairs) {
+                if (board[x] && board[y] && board[x][y].visited === false) {
+                    neighbors.push(board[x][y]);
+                }
+            }
+            return neighbors;
+        }
         board = board;
         cell.visited = true;
-        let neighbors = get_neighbors(cell);
+        board[cell.x][cell.y].type = CellType.EMPTY;
+        let neighbors = get_neighbors_maze(cell);
         while (neighbors.length > 0 && !stop) {
             const neighbor =
                 neighbors[Math.floor(Math.random() * neighbors.length)];
@@ -119,51 +169,100 @@
             remove_ajoining_wall(cell, neighbor);
             if (!stop) {
                 board = board;
-                await new Promise((r) => setTimeout(r, speed));
-                await generate_maze(neighbor);
+                if (speed > 0) {
+                    await new Promise((r) => setTimeout(r, speed));
+                    await generate_maze(neighbor);
+                } else {
+                    generate_maze(neighbor);
+                }
             }
 
-            neighbors = get_neighbors(cell);
+            neighbors = get_neighbors_maze(cell);
         }
     }
 
     function get_color(cell: Cell) {
-        if (cell.visited) {
-            return "bg-red-400";
-        } else if (cell.neighbor) {
-            return "bg-blue-400";
+        if (cell.type == CellType.WALL) {
+            return "bg-black";
+        } else if (cell.type == CellType.START) {
+            return "bg-green-500";
+        } else if (cell.type == CellType.END) {
+            return "bg-red-500";
+        } else if (cell.type == CellType.PATH) {
+            return "bg-blue-500";
         } else {
             return "bg-white";
         }
     }
+
+    let placing: CellType = CellType.WALL;
+    let start: Cell;
+    let end: Cell;
 </script>
 
 <main
-    class="w-screen h-screen flex bg-white/95 justify-center items-center flex-col gap-4"
+    class="w-screen h-screen flex bg-white/70 justify-center items-center flex-col gap-4"
 >
     <span class="gap-4 flex flex-row">
         <button
             class="p-2 rounded-md shadow-md bg-blue-600/30 font-mono text-center text-white"
-            on:click={() => generate_maze(current)}>Generate Maze</button
+            on:click={() => {
+                board = board.map((row) =>
+                    row.map((cell) => {
+                        cell.type = CellType.WALL;
+                        return cell;
+                    }),
+                );
+                generate_maze(current);
+            }}>Generate Maze</button
         >
         <button
             class="p-2 rounded-md shadow-md bg-red-600/30 font-mono text-center text-white"
             on:click={() => (stop = true)}>Stop</button
         >
         <button
-            class="p-2 rounded-md shadow-md bg-black font-mono text-center text-white"
+            class="p-2 rounded-md shadow-md bg-black/30 font-mono text-center text-white"
             on:click={() => clear_board()}>Clear</button
+        >
+        <button
+            class="p-2 rounded-md shadow-md bg-green-400/30 font-mono text-center text-white"
+            on:click={() => (placing = CellType.START)}>Place Start</button
+        >
+        <button
+            class="p-2 rounded-md shadow-md bg-red-400/30 font-mono text-center text-white"
+            on:click={() => (placing = CellType.END)}>Place End</button
+        >
+        <button
+            class="p-2 rounded-md shadow-md bg-orange-400/30 font-mono text-center text-white"
+            on:click={() => dijkstra_pathfind(start, end)}>run</button
         >
     </span>
     <div
         class="rounded-lg overflow-clip shadow-lg"
         style={`display: grid; grid-template-columns: repeat(${size}, 1fr); grid-auto-rows: minmax(0, auto); `}
     >
-        {#each board as row}
-            {#each row as cell}
-                <span
-                    class={`-m-[2px] w-5 h-5 ${get_color(cell)} ${cell.tailwind_borders}`}
-                ></span>
+        {#each board as row, i}
+            {#each row as cell (cell)}
+                <button
+                    on:click={() => {
+                        cell.type = placing;
+                        if (cell.type === CellType.START) {
+                            if (start) {
+                                start.type = CellType.EMPTY;
+                            }
+                            start = cell;
+                        } else if (cell.type === CellType.END) {
+                            if (end) {
+                                end.type = CellType.EMPTY;
+                            }
+                            end = cell;
+                        }
+
+                        board = board;
+                    }}
+                    in:scale={{ start: 2, duration: i, easing: quintOut }}
+                    class={`border-2 border-black/10 -m-[1px] w-4 h-4 ${get_color(cell)} `}
+                ></button>
             {/each}
         {/each}
     </div>
