@@ -4,10 +4,12 @@
     import { fly, scale } from "svelte/transition";
 
     let size = 43;
-    let speed = 19;
+    let speed = 0;
+
     enum CellType {
         WALL,
         EMPTY,
+        SCANNED,
         PATH,
         START,
         END,
@@ -15,6 +17,7 @@
 
     class Cell {
         type: CellType = CellType.EMPTY;
+        weight: number = 99999;
         x: number;
         y: number;
         visited = false;
@@ -75,47 +78,56 @@
     }
 
     async function dijkstra_pathfind(start: Cell, end: Cell) {
-        let unvisited = board.flat();
-        let visited = [];
-        let current = start;
-        let found = false;
-
-        while (current !== end && unvisited.length > 0) {
-            unvisited = unvisited.filter((cell) => cell !== current);
-            visited.push(current);
-            let neighbors = get_neighbors(current);
-            for (const neighbor of neighbors) {
-                if (visited.includes(neighbor)) {
-                    continue;
+        for (const row of board) {
+            for (const cell of row) {
+                cell.weight = 99999;
+                cell.visited = false;
+                if (cell.type === CellType.PATH) {
+                    cell.type = CellType.EMPTY;
                 }
-                if (neighbor.type === CellType.WALL) {
-                    continue;
-                }
-                if (neighbor.type === CellType.END) {
-                    found = true;
-                    break;
-                }
-                if (neighbor.type === CellType.EMPTY) {
-                    neighbor.type = CellType.PATH;
-                    board = board;
-                }
-            }
-            if (found) {
-                break;
-            }
-            let distances = neighbors.map((cell) => {
-                return {
-                    cell,
-                    distance:
-                        Math.abs(cell.x - end.x) + Math.abs(cell.y - end.y),
-                };
-            });
-            distances.sort((a, b) => a.distance - b.distance);
-            current = distances[0].cell;
-            if (speed > 0) {
-                await new Promise((r) => setTimeout(r, speed));
             }
         }
+        start.weight = 0;
+        let current = start;
+        let unvisited = board.flat();
+        let visited = [];
+
+        while (current !== end && unvisited.length > 0 && !stop) {
+            let neighbors = get_neighbors(current);
+
+            for (const n of neighbors) {
+                if (n.weight > current.weight + 1) {
+                    n.weight = current.weight + 1;
+                }
+            }
+
+            if (speed > 0) {
+                await new Promise((r) => setTimeout(r, speed));
+                board = board;
+            }
+            current.visited = true;
+            visited.push(current);
+            unvisited = unvisited.filter((e) => e.visited == false);
+            current = unvisited.reduce((a, b) => (a.weight < b.weight ? a : b));
+        }
+        board = board;
+
+        // backtrace and set the type to path
+
+        let current_cell = end;
+        while (current_cell !== start) {
+            let neighbors = get_neighbors(current_cell);
+            let next = neighbors.find((n) => n.weight <= current_cell.weight);
+            if (next) {
+                current_cell = next;
+                if (current_cell.type === CellType.EMPTY) {
+                    current_cell.type = CellType.PATH;
+                }
+            } else {
+                break;
+            }
+        }
+        board = board;
     }
 
     function get_neighbors(cell: Cell) {
@@ -131,7 +143,7 @@
         let neighbors = [];
 
         for (const [x, y] of chord_pairs) {
-            if (board[x] && board[y] && board[x][y].visited === false) {
+            if (board[x] && board[y] && board[x][y].type !== CellType.WALL) {
                 neighbors.push(board[x][y]);
             }
         }
@@ -182,22 +194,28 @@
     }
 
     function get_color(cell: Cell) {
-        if (cell.type == CellType.WALL) {
-            return "bg-black";
-        } else if (cell.type == CellType.START) {
-            return "bg-green-500";
-        } else if (cell.type == CellType.END) {
-            return "bg-red-500";
-        } else if (cell.type == CellType.PATH) {
-            return "bg-blue-500";
-        } else {
-            return "bg-white";
+        switch (cell.type) {
+            case CellType.START:
+                return "bg-green-400";
+            case CellType.END:
+                return "bg-red-400";
+            case CellType.WALL:
+                return "bg-black";
+            case CellType.EMPTY:
+                return "bg-white";
+            case CellType.SCANNED:
+                return "bg-blue-400";
+            case CellType.PATH:
+                return "bg-blue-200";
         }
     }
 
     let placing: CellType = CellType.WALL;
-    let start: Cell;
-    let end: Cell;
+
+    board[20][20].type = CellType.START;
+    board[10][5].type = CellType.END;
+    let start: Cell = board[20][20];
+    let end: Cell = board[10][5];
 </script>
 
 <main
@@ -249,8 +267,11 @@
                         if (cell.type === CellType.START) {
                             if (start) {
                                 start.type = CellType.EMPTY;
+                                start = cell;
+                                dijkstra_pathfind(start, end);
+                            } else {
+                                start = cell;
                             }
-                            start = cell;
                         } else if (cell.type === CellType.END) {
                             if (end) {
                                 end.type = CellType.EMPTY;
