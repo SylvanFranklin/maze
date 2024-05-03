@@ -3,8 +3,9 @@
     import { quintOut } from "svelte/easing";
     import { fly, scale } from "svelte/transition";
 
-    let size = 43;
-    let speed = 0;
+    let size = 51;
+    let speed = 1;
+    let allow_diagonal = true;
 
     enum CellType {
         WALL,
@@ -36,14 +37,15 @@
                 .map((_, k) => new Cell(i, k)),
         );
 
-    function clear_board() {
-        board = Array(size)
-            .fill(0)
-            .map((_, i) =>
-                Array(size)
-                    .fill(0)
-                    .map((_, k) => new Cell(i, k)),
-            );
+    async function clear_board() {
+        for (const row of board) {
+            for (const cell of row) {
+                cell.type = CellType.EMPTY;
+                cell.visited = false;
+            }
+            await new Promise((r) => setTimeout(r, speed));
+            board = [...board];
+        }
     }
 
     function get_neighbors_maze(cell: Cell) {
@@ -82,33 +84,72 @@
             for (const cell of row) {
                 cell.weight = 99999;
                 cell.visited = false;
-                if (cell.type === CellType.PATH) {
+                if (
+                    cell.type == CellType.PATH ||
+                    cell.type == CellType.SCANNED
+                ) {
                     cell.type = CellType.EMPTY;
                 }
             }
         }
+
+        board = board;
         start.weight = 0;
+        let animate_period = 3;
         let current = start;
-        let unvisited = board.flat();
+        let unvisited = board
+            .flat()
+            .filter((e) => e.visited == false && e.type !== CellType.WALL);
         let visited = [];
+        let i = 0;
 
-        while (current !== end && unvisited.length > 0 && !stop) {
+        while (current !== end && !stop) {
+            i++;
             let neighbors = get_neighbors(current);
-
             for (const n of neighbors) {
-                if (n.weight > current.weight + 1) {
-                    n.weight = current.weight + 1;
+                const distance = Math.sqrt(
+                    Math.pow(n.x - current.x, 2) + Math.pow(n.y - current.y, 2),
+                );
+
+                if (n.weight > current.weight + distance) {
+                    n.weight = current.weight + distance;
                 }
             }
 
-            if (speed > 0) {
-                await new Promise((r) => setTimeout(r, speed));
-                board = board;
-            }
             current.visited = true;
+            if (current.type != CellType.START) {
+                current.type = CellType.SCANNED;
+            }
             visited.push(current);
             unvisited = unvisited.filter((e) => e.visited == false);
+            // determine if we should stop, because there is no open nodes left
+
+            if (unvisited.length == 0) {
+                break;
+            }
+
             current = unvisited.reduce((a, b) => (a.weight < b.weight ? a : b));
+
+            if (speed > 0 && i % animate_period == 0) {
+                await new Promise((r) => setTimeout(r, speed)).then(
+                    () => (board = [...board]),
+                );
+            }
+            if (get_neighbors(current).filter((e) => e.visited).length == 0) {
+                // make sure there are no gaps in scanning animation
+
+                for (const row of board) {
+                    for (const cell of row) {
+                        if (cell.visited && cell.type == CellType.EMPTY) {
+                            cell.type = CellType.SCANNED;
+                        }
+                    }
+                }
+
+                board = board;
+
+                return;
+            }
         }
         board = board;
 
@@ -117,28 +158,50 @@
         let current_cell = end;
         while (current_cell !== start) {
             let neighbors = get_neighbors(current_cell);
-            let next = neighbors.find((n) => n.weight <= current_cell.weight);
+            // find next, the lowest weight neighbor
+
+            let next = neighbors.reduce((a, b) =>
+                a.weight < b.weight ? a : b,
+            );
+
             if (next) {
                 current_cell = next;
-                if (current_cell.type === CellType.EMPTY) {
+                if (
+                    current_cell.type === CellType.SCANNED ||
+                    current_cell.type == CellType.EMPTY
+                ) {
                     current_cell.type = CellType.PATH;
+                    if (speed > 0) {
+                        await new Promise((r) => setTimeout(r, speed));
+                        board = board;
+                    }
                 }
             } else {
                 break;
             }
         }
-        board = board;
     }
 
     function get_neighbors(cell: Cell) {
         let x = cell.x;
         let y = cell.y;
-        const chord_pairs = [
-            [x - 1, y],
-            [x, y - 1],
-            [x, y + 1],
-            [x + 1, y],
-        ];
+        const chord_pairs = allow_diagonal
+            ? [
+                  [x - 1, y],
+                  [x, y - 1],
+                  [x, y + 1],
+                  [x + 1, y],
+                  [x - 1, y - 1],
+                  [x - 1, y + 1],
+                  [x + 1, y - 1],
+                  [x + 1, y + 1],
+              ]
+            : [
+                  [x - 1, y],
+                  [x, y - 1],
+                  [x, y + 1],
+                  [x + 1, y],
+              ];
 
         let neighbors = [];
 
@@ -148,6 +211,36 @@
             }
         }
         return neighbors;
+    }
+
+    async function recursive_subdivision() {
+        function get_orentation() {
+            return Math.random() > 0.5 ? "horizontal" : "vertical";
+        }
+
+        const halfway_x = Math.floor(size / 2);
+        const halfway_y = Math.floor(size / 2);
+        const orientation = get_orentation();
+
+        for (let i = 0; i < size; i++) {
+            if (orientation === "horizontal") {
+                board[halfway_x][i].type = CellType.WALL;
+            } else {
+                board[i][halfway_y].type = CellType.WALL;
+            }
+        }
+
+        // make a random hole
+
+        if (orientation === "horizontal") {
+            board[halfway_x][Math.floor(Math.random() * size)].type =
+                CellType.EMPTY;
+        } else {
+            board[Math.floor(Math.random() * size)][halfway_y].type =
+                CellType.EMPTY;
+        }
+
+        // recursive subdivision
     }
 
     async function generate_maze(cell: Cell) {
@@ -204,87 +297,157 @@
             case CellType.EMPTY:
                 return "bg-white";
             case CellType.SCANNED:
-                return "bg-blue-400";
-            case CellType.PATH:
                 return "bg-blue-200";
+            case CellType.PATH:
+                return "bg-blue-400";
         }
     }
 
     let placing: CellType = CellType.WALL;
+    let down = false;
 
-    board[20][20].type = CellType.START;
-    board[10][5].type = CellType.END;
-    let start: Cell = board[20][20];
-    let end: Cell = board[10][5];
+    let start: Cell;
+    let end: Cell;
+
+    function place_start(cell: Cell) {
+        // remove all other starts
+        board = board.map((row) =>
+            row.map((cell) => {
+                if (cell.type === CellType.START) {
+                    cell.type = CellType.EMPTY;
+                }
+                return cell;
+            }),
+        );
+
+        cell.type = CellType.START;
+        start = cell;
+        board = board;
+    }
+
+    function place_end(cell: Cell) {
+        // remove all other ends
+        board = board.map((row) =>
+            row.map((cell) => {
+                if (cell.type === CellType.END) {
+                    cell.type = CellType.EMPTY;
+                }
+                return cell;
+            }),
+        );
+
+        cell.type = CellType.END;
+        end = cell;
+        board = board;
+    }
 </script>
 
 <main
-    class="w-screen h-screen flex bg-white/70 justify-center items-center flex-col gap-4"
+    class="w-screen h-screen flex bg-white/70 justify-center items-center flex-col gap-2"
 >
-    <span class="gap-4 flex flex-row">
-        <button
-            class="p-2 rounded-md shadow-md bg-blue-600/30 font-mono text-center text-white"
-            on:click={() => {
-                board = board.map((row) =>
-                    row.map((cell) => {
-                        cell.type = CellType.WALL;
-                        return cell;
-                    }),
-                );
-                generate_maze(current);
-            }}>Generate Maze</button
-        >
-        <button
-            class="p-2 rounded-md shadow-md bg-red-600/30 font-mono text-center text-white"
-            on:click={() => (stop = true)}>Stop</button
-        >
-        <button
-            class="p-2 rounded-md shadow-md bg-black/30 font-mono text-center text-white"
-            on:click={() => clear_board()}>Clear</button
-        >
-        <button
-            class="p-2 rounded-md shadow-md bg-green-400/30 font-mono text-center text-white"
-            on:click={() => (placing = CellType.START)}>Place Start</button
-        >
-        <button
-            class="p-2 rounded-md shadow-md bg-red-400/30 font-mono text-center text-white"
-            on:click={() => (placing = CellType.END)}>Place End</button
-        >
-        <button
-            class="p-2 rounded-md shadow-md bg-orange-400/30 font-mono text-center text-white"
-            on:click={() => dijkstra_pathfind(start, end)}>run</button
-        >
-    </span>
-    <div
-        class="rounded-lg overflow-clip shadow-lg"
-        style={`display: grid; grid-template-columns: repeat(${size}, 1fr); grid-auto-rows: minmax(0, auto); `}
-    >
-        {#each board as row, i}
-            {#each row as cell (cell)}
+    <div class="flex flex-col gap-2">
+        <span class="gap-4 flex flex-row-reverse border-2 rounded-lg p-2">
+            <button
+                class="p-2 rounded-md shadow-md bg-red-600 font-mono text-center text-white"
+                on:click={() => (stop = true)}>Stop</button
+            >
+            <button
+                class={`p-2 rounded-md shadow-md bg-orange-600 font-mono text-center text-white ${speed == 0 && "opacity-30"}`}
+                on:click={() => (speed == 0 ? (speed = 1) : (speed = 0))}
+                >animate</button
+            >
+            <button
+                class={`p-2 rounded-md shadow-md bg-green-600 font-mono text-center text-white ${!allow_diagonal && "opacity-30"}`}
+                on:click={() => (allow_diagonal = !allow_diagonal)}
+                >corner cut</button
+            >
+        </span>
+        <div class="grid item-center justify-center grid-flow-col">
+            <ol
+                class="flex flex-col mr-2 gap-2 relative top-0 left-0 border-2 rounded-md p-2"
+            >
                 <button
+                    class="p-2 rounded-md shadow-md bg-blue-600 font-mono text-center text-white"
                     on:click={() => {
-                        cell.type = placing;
-                        if (cell.type === CellType.START) {
-                            if (start) {
-                                start.type = CellType.EMPTY;
-                                start = cell;
-                                dijkstra_pathfind(start, end);
-                            } else {
-                                start = cell;
-                            }
-                        } else if (cell.type === CellType.END) {
-                            if (end) {
-                                end.type = CellType.EMPTY;
-                            }
-                            end = cell;
-                        }
+                        board = board.map((row) =>
+                            row.map((cell) => {
+                                cell.type = CellType.WALL;
+                                cell.visited = false;
+                                return cell;
+                            }),
+                        );
+                        generate_maze(
+                            board[Math.floor(size / 2)][Math.floor(size / 2)],
+                        );
+                    }}>Maze</button
+                >
+                <li class="flex flex-col p-2 rounded-lg gap-2 bg-black">
+                    <button
+                        class={`p-2 rounded-md shadow-md bg-black text-white font-mono text-center  ${placing == CellType.WALL && "scale-110"}`}
+                        on:click={() => (placing = CellType.WALL)}>wall</button
+                    >
+                    <button
+                        class={`p-2 rounded-md shadow-md bg-green-400 font-mono text-center text-white ${placing == CellType.START && "scale-110"}`}
+                        on:click={() => (placing = CellType.START)}
+                        >start</button
+                    >
+                    <button
+                        class={`p-2 rounded-md shadow-md bg-red-400 font-mono text-center text-white ${placing == CellType.END && "scale-110"}`}
+                        on:click={() => (placing = CellType.END)}>end</button
+                    >
+                </li>
+                <button
+                    class="p-2 rounded-md shadow-md bg-purple-400 font-mono text-center text-white"
+                    on:click={() => dijkstra_pathfind(start, end)}>find</button
+                >
+                <button
+                    class="p-2 rounded-md shadow-md bg-black/30 font-mono text-center text-white"
+                    on:click={() => clear_board()}>Clear</button
+                >
+            </ol>
 
-                        board = board;
-                    }}
-                    in:scale={{ start: 2, duration: i, easing: quintOut }}
-                    class={`border-2 border-black/10 -m-[1px] w-4 h-4 ${get_color(cell)} `}
-                ></button>
-            {/each}
-        {/each}
+            <div
+                class="rounded-lg overflow-clip shadow-lg border-2 border-black/10"
+                style={`display: grid; grid-template-columns: repeat(${size}, 1fr); grid-auto-rows: minmax(0, auto); `}
+            >
+                {#each board as row, x}
+                    {#each row as cell, y}
+                        <button
+                            on:mousedown={() => {
+                                down = true;
+                                if (placing === CellType.START) {
+                                    place_start(cell);
+                                } else if (placing === CellType.END) {
+                                    place_end(cell);
+                                } else {
+                                    cell.type = CellType.WALL;
+                                }
+                            }}
+                            on:mouseup={() => (down = false)}
+                            on:mouseenter={() => {
+                                if (down) {
+                                    if (placing === CellType.START) {
+                                        place_start(cell);
+                                    } else if (placing === CellType.END) {
+                                        place_end(cell);
+                                    } else {
+                                        cell.type = CellType.WALL;
+                                    }
+                                }
+                            }}
+                            class={`border-[2px] text-xs border-black/5 -m-[2px] w-[18px] h-[18px] ${get_color(cell)} relative flex items-center justify-center`}
+                        >
+                            {#if cell.type == CellType.START}
+                                <span class="w-4 h-4 rounded-lg bg-green-200 m-2">
+                                </span>
+                            {:else if cell.type == CellType.END}
+                                <span class="w-2 h-2 rounded-lg bg-green-200">
+                                </span>
+                            {/if}
+                        </button>
+                    {/each}
+                {/each}
+            </div>
+        </div>
     </div>
 </main>
