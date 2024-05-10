@@ -1,33 +1,11 @@
 <script lang="ts">
+    import { Cell, CellType } from "$lib/types";
     import { flip } from "svelte/animate";
-    import { quintOut } from "svelte/easing";
-    import { fly, scale } from "svelte/transition";
-
+    import { scale } from "svelte/transition";
     let size = 51;
     let speed = 1;
+    let animating = false;
     let allow_diagonal = true;
-
-    enum CellType {
-        WALL,
-        EMPTY,
-        SCANNED,
-        PATH,
-        START,
-        END,
-    }
-
-    class Cell {
-        type: CellType = CellType.EMPTY;
-        weight: number = 99999;
-        x: number;
-        y: number;
-        visited = false;
-
-        constructor(x: number, y: number) {
-            this.x = x;
-            this.y = y;
-        }
-    }
 
     let board = Array(size)
         .fill(0)
@@ -43,9 +21,13 @@
                 cell.type = CellType.EMPTY;
                 cell.visited = false;
             }
-            await new Promise((r) => setTimeout(r, speed));
-            board = [...board];
+            await new Promise((r) => setTimeout(r, 1)).then(() => {
+                board = [...board];
+            });
         }
+        // remove start and end
+        start = null;
+        end = null;
     }
 
     function get_neighbors_maze(cell: Cell) {
@@ -134,6 +116,11 @@
                 await new Promise((r) => setTimeout(r, speed)).then(
                     () => (board = [...board]),
                 );
+
+                // make the animation period bigger as we get closer to the end
+                if (i > animate_period * 10) {
+                    animate_period += 2;
+                }
             }
             if (get_neighbors(current).filter((e) => e.visited).length == 0) {
                 // make sure there are no gaps in scanning animation
@@ -213,34 +200,58 @@
         return neighbors;
     }
 
-    async function recursive_subdivision() {
+    async function recursive_subdivision(
+        x1: number,
+        y1: number,
+        x2: number,
+        y2: number,
+        depth: number,
+    ) {
         function get_orentation() {
-            return Math.random() > 0.5 ? "horizontal" : "vertical";
-        }
-
-        const halfway_x = Math.floor(size / 2);
-        const halfway_y = Math.floor(size / 2);
-        const orientation = get_orentation();
-
-        for (let i = 0; i < size; i++) {
-            if (orientation === "horizontal") {
-                board[halfway_x][i].type = CellType.WALL;
+            if (x2 - x1 > y2 - y1) {
+                return "vertical";
+            } else if (x2 - x1 < y2 - y1) {
+                return "horizontal";
             } else {
-                board[i][halfway_y].type = CellType.WALL;
+                return Math.random() > 0.5 ? "vertical" : "horizontal";
             }
         }
 
-        // make a random hole
+        const halfway_x = Math.floor(x2 / 2);
+        const halfway_y = Math.floor(y2 / 2);
+        const orientation = get_orentation();
 
-        if (orientation === "horizontal") {
-            board[halfway_x][Math.floor(Math.random() * size)].type =
+        if (orientation == "horizontal") {
+            for (let i = x1; i < x2; i++) {
+                board[i][halfway_y].type = CellType.WALL;
+            }
+        } else {
+            for (let i = y1; i < y2; i++) {
+                board[halfway_x][i].type = CellType.WALL;
+            }
+        }
+
+        if (orientation == "horizontal") {
+            board[Math.floor(Math.random() * x2) + x1][halfway_y].type =
                 CellType.EMPTY;
         } else {
-            board[Math.floor(Math.random() * size)][halfway_y].type =
+            board[halfway_x][Math.floor(Math.random() * y2) + y1].type =
                 CellType.EMPTY;
         }
 
-        // recursive subdivision
+        await new Promise((r) => setTimeout(r, speed));
+        board = [...board];
+
+        if (depth >= 0) {
+            if (orientation == "horizontal") {
+                // recurse on both sides of the maze
+                recursive_subdivision(x1, halfway_y + 1, x2, y2, depth - 1);
+                recursive_subdivision(x1, y1, x2, halfway_y, depth - 1);
+            } else {
+                recursive_subdivision(x1, y1, halfway_x, y2, depth - 1);
+                recursive_subdivision(halfway_x + 1, y1, x2, y2, depth - 1);
+            }
+        }
     }
 
     async function generate_maze(cell: Cell) {
@@ -305,21 +316,22 @@
 
     let placing: CellType = CellType.WALL;
     let down = false;
-
-    let start: Cell;
-    let end: Cell;
+    let gone: Cell;
+    let start: Cell | null = null;
+    let end: Cell | null = null;
 
     function place_start(cell: Cell) {
         // remove all other starts
         board = board.map((row) =>
             row.map((cell) => {
                 if (cell.type === CellType.START) {
-                    cell.type = CellType.EMPTY;
+                    cell.type = gone.type;
                 }
                 return cell;
             }),
         );
 
+        gone = { ...cell };
         cell.type = CellType.START;
         start = cell;
         board = board;
@@ -376,9 +388,11 @@
                                 return cell;
                             }),
                         );
+
                         generate_maze(
                             board[Math.floor(size / 2)][Math.floor(size / 2)],
                         );
+                        // recursive_subdivision(0, 0, size, size, 4);
                     }}>Maze</button
                 >
                 <li class="flex flex-col p-2 rounded-lg gap-2 bg-black">
@@ -398,7 +412,9 @@
                 </li>
                 <button
                     class="p-2 rounded-md shadow-md bg-purple-400 font-mono text-center text-white"
-                    on:click={() => dijkstra_pathfind(start, end)}>find</button
+                    on:click={() =>
+                        start && end && dijkstra_pathfind(start, end)}
+                    >find</button
                 >
                 <button
                     class="p-2 rounded-md shadow-md bg-black/30 font-mono text-center text-white"
@@ -435,13 +451,21 @@
                                     }
                                 }
                             }}
-                            class={`border-[2px] text-xs border-black/5 -m-[2px] w-[18px] h-[18px] ${get_color(cell)} relative flex items-center justify-center`}
+                            class={`border-[2px] text-xs border-black/5 -m-[2px] w-[18px] h-[18px] grid items-center place-items-center relative`}
                         >
-                            {#if cell.type == CellType.START}
-                                <span class="w-4 h-4 rounded-lg bg-green-200 m-2">
+                            {#if cell.type !== CellType.EMPTY}
+                                <span
+                                    class={`${get_color(cell)} w-[18px] h-[18px]`}
+                                    in:scale|local={{
+                                        duration: 200,
+                                        delay: 20,
+                                        opacity: 1,
+                                        start: 0.4,
+                                    }}
+                                >
                                 </span>
-                            {:else if cell.type == CellType.END}
-                                <span class="w-2 h-2 rounded-lg bg-green-200">
+                            {:else}
+                                <span class="bg-white w-[18px] h-[18px]">
                                 </span>
                             {/if}
                         </button>
