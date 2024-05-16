@@ -1,11 +1,9 @@
 <script lang="ts">
     import { Cell, CellType } from "$lib/types";
-    import { flip } from "svelte/animate";
     import { scale } from "svelte/transition";
     let size = 51;
     let speed = 1;
-    let animating = false;
-    let allow_diagonal = true;
+    let allow_diagonal = false;
 
     let board = Array(size)
         .fill(0)
@@ -15,19 +13,18 @@
                 .map((_, k) => new Cell(i, k)),
         );
 
+    // now updated to show no animation
     async function clear_board() {
         for (const row of board) {
             for (const cell of row) {
                 cell.type = CellType.EMPTY;
                 cell.visited = false;
             }
-            await new Promise((r) => setTimeout(r, 1)).then(() => {
-                board = [...board];
-            });
         }
         // remove start and end
         start = null;
         end = null;
+        board = [...board]
     }
 
     function get_neighbors_maze(cell: Cell) {
@@ -342,12 +339,13 @@
         board = board.map((row) =>
             row.map((cell) => {
                 if (cell.type === CellType.END) {
-                    cell.type = CellType.EMPTY;
+                    cell.type = gone.type;
                 }
                 return cell;
             }),
         );
 
+        gone = { ...cell };
         cell.type = CellType.END;
         end = cell;
         board = board;
@@ -379,7 +377,7 @@
                 class="flex flex-col mr-2 gap-2 relative top-0 left-0 border-2 rounded-md p-2"
             >
                 <button
-                    class="p-2 rounded-md shadow-md bg-blue-600 font-mono text-center text-white"
+                    class="p-2 rounded-md shadow-md bg-blue-600/80 font-mono text-center text-white"
                     on:click={() => {
                         board = board.map((row) =>
                             row.map((cell) => {
@@ -393,21 +391,28 @@
                             board[Math.floor(size / 2)][Math.floor(size / 2)],
                         );
                         // recursive_subdivision(0, 0, size, size, 4);
-                    }}>Maze</button
+                    }}>maze</button
                 >
-                <li class="flex flex-col p-2 rounded-lg gap-2 bg-black">
+                <li
+                    class="flex flex-col p-2 rounded-lg gap-2 shadow-md border-2"
+                >
                     <button
-                        class={`p-2 rounded-md shadow-md bg-black text-white font-mono text-center  ${placing == CellType.WALL && "scale-110"}`}
+                        class={`p-2 rounded-md shadow-md bg-black text-white font-mono text-center duration-200 ${placing == CellType.WALL && "scale-110"}`}
                         on:click={() => (placing = CellType.WALL)}>wall</button
                     >
                     <button
-                        class={`p-2 rounded-md shadow-md bg-green-400 font-mono text-center text-white ${placing == CellType.START && "scale-110"}`}
+                        class={`p-2 rounded-md shadow-md bg-green-400 font-mono text-center text-white duration-200 ${placing == CellType.START && "scale-110"}`}
                         on:click={() => (placing = CellType.START)}
                         >start</button
                     >
                     <button
-                        class={`p-2 rounded-md shadow-md bg-red-400 font-mono text-center text-white ${placing == CellType.END && "scale-110"}`}
+                        class={`p-2 rounded-md shadow-md bg-red-400 font-mono text-center text-white duration-200  ${placing == CellType.END && "scale-110"}`}
                         on:click={() => (placing = CellType.END)}>end</button
+                    >
+                    <button
+                        class={`p-2 rounded-md shadow-md bg-pink-300 font-mono text-center text-white duration-200/50 ${placing == CellType.EMPTY && "scale-110"}`}
+                        on:click={() => (placing = CellType.EMPTY)}
+                        >erase</button
                     >
                 </li>
                 <button
@@ -436,7 +441,7 @@
                                 } else if (placing === CellType.END) {
                                     place_end(cell);
                                 } else {
-                                    cell.type = CellType.WALL;
+                                    cell.type = placing;
                                 }
                             }}
                             on:mouseup={() => (down = false)}
@@ -447,7 +452,7 @@
                                     } else if (placing === CellType.END) {
                                         place_end(cell);
                                     } else {
-                                        cell.type = CellType.WALL;
+                                        cell.type = placing;
                                     }
                                 }
                             }}
