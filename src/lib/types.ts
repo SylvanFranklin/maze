@@ -1,11 +1,13 @@
 export enum CellType {
     WALL,
     EMPTY,
+    WEIGHT,
     SCANNED,
     PATH,
     START,
     END,
 }
+
 
 export class Cell {
     type: CellType = CellType.EMPTY;
@@ -14,8 +16,9 @@ export class Cell {
     y: number;
     visited = false;
 
-    constructor(x: number, y: number) {
+    constructor(x: number, y: number, type?: CellType) {
         this.x = x;
         this.y = y;
+        this.type = type || CellType.EMPTY;
     }
 }

@@ -1,9 +1,18 @@
 <script lang="ts">
     import { Cell, CellType } from "$lib/types";
-    import { scale } from "svelte/transition";
-    let size = 51;
+    import { writable } from "svelte/store";
+    let size = 60;
+    let settings = false;
+    let mazes = false;
+    let running = writable(false);
     let speed = 1;
+    let animation_lock = false;
     let allow_diagonal = false;
+    let placing: CellType = CellType.WALL;
+    let down = false;
+    let gone: Cell;
+    let start: Cell | null = null;
+    let end: Cell | null = null;
 
     let board = Array(size)
         .fill(0)
@@ -24,7 +33,7 @@
         // remove start and end
         start = null;
         end = null;
-        board = [...board]
+        board = [...board];
     }
 
     function get_neighbors_maze(cell: Cell) {
@@ -46,8 +55,6 @@
         }
         return neighbors;
     }
-
-    let stop = false;
 
     // make sure that current, is not an edge cell
     let current = board[Math.floor(size / 2)][Math.floor(size / 2)];
@@ -82,7 +89,7 @@
         let visited = [];
         let i = 0;
 
-        while (current !== end && !stop) {
+        while (current !== end) {
             i++;
             let neighbors = get_neighbors(current);
             for (const n of neighbors) {
@@ -91,7 +98,12 @@
                 );
 
                 if (n.weight > current.weight + distance) {
-                    n.weight = current.weight + distance;
+                    if (n.type == CellType.WEIGHT) {
+                        n.weight = current.weight + distance + 10;
+                    } else {
+                        // if it is a weight cell, add 5 to the weight
+                        n.weight = current.weight + distance;
+                    }
                 }
             }
 
@@ -138,7 +150,6 @@
         board = board;
 
         // backtrace and set the type to path
-
         let current_cell = end;
         while (current_cell !== start) {
             let neighbors = get_neighbors(current_cell);
@@ -202,56 +213,128 @@
         y1: number,
         x2: number,
         y2: number,
-        depth: number,
+        orientation: "vertical" | "horizontal",
     ) {
-        function get_orentation() {
+        function get_orientation() {
             if (x2 - x1 > y2 - y1) {
                 return "vertical";
             } else if (x2 - x1 < y2 - y1) {
                 return "horizontal";
             } else {
-                return Math.random() > 0.5 ? "vertical" : "horizontal";
+                return Math.random() > 5 ? "vertical" : "horizontal";
             }
         }
 
-        const halfway_x = Math.floor(x2 / 2);
-        const halfway_y = Math.floor(y2 / 2);
-        const orientation = get_orentation();
+        let halfway_x = Math.floor((x2 + x1) / 2);
+        let halfway_y = Math.floor((y2 + y1) / 2);
 
-        if (orientation == "horizontal") {
-            for (let i = x1; i < x2; i++) {
-                board[i][halfway_y].type = CellType.WALL;
-            }
-        } else {
+        // once the resolution is fine enough we can just return out
+        if (x2 - x1 < 4 || y2 - y1 < 4) {
+            return;
+        }
+
+        if (orientation == "vertical") {
             for (let i = y1; i < y2; i++) {
                 board[halfway_x][i].type = CellType.WALL;
+                if (!animation_lock) {
+                    if (i % 3 == 0) {
+                        await new Promise((r) => setTimeout(r, speed)).then(
+                            () => (board = [...board]),
+                        );
+                    }
+                }
             }
-        }
 
-        if (orientation == "horizontal") {
-            board[Math.floor(Math.random() * x2) + x1][halfway_y].type =
-                CellType.EMPTY;
-        } else {
-            board[halfway_x][Math.floor(Math.random() * y2) + y1].type =
-                CellType.EMPTY;
-        }
+            // let gap = Math.floor(Math.random() * (y2 - y1) + y1);
+            // board[halfway_x][gap].type = CellType.EMPTY;
 
-        await new Promise((r) => setTimeout(r, speed));
-        board = [...board];
-
-        if (depth >= 0) {
-            if (orientation == "horizontal") {
-                // recurse on both sides of the maze
-                recursive_subdivision(x1, halfway_y + 1, x2, y2, depth - 1);
-                recursive_subdivision(x1, y1, x2, halfway_y, depth - 1);
+            if (Math.random() > 0.5) {
+                await recursive_subdivision(
+                    halfway_x,
+                    y1,
+                    x2,
+                    y2,
+                    get_orientation(),
+                ).then(() =>
+                    recursive_subdivision(
+                        x1,
+                        y1,
+                        halfway_x,
+                        y2,
+                        get_orientation(),
+                    ),
+                );
             } else {
-                recursive_subdivision(x1, y1, halfway_x, y2, depth - 1);
-                recursive_subdivision(halfway_x + 1, y1, x2, y2, depth - 1);
+                await recursive_subdivision(
+                    x1,
+                    y1,
+                    halfway_x,
+                    y2,
+                    get_orientation(),
+                ).then(() =>
+                    recursive_subdivision(
+                        halfway_x,
+                        y1,
+                        x2,
+                        y2,
+                        get_orientation(),
+                    ),
+                );
+            }
+        } else {
+            for (let i = x1; i < x2; i++) {
+                board[i][halfway_y].type = CellType.WALL;
+                if (!animation_lock) {
+                    if (i % 3 == 0) {
+                        await new Promise((r) => setTimeout(r, speed)).then(
+                            () => (board = [...board]),
+                        );
+                    }
+                }
+            }
+
+            // let gap = Math.floor(Math.random() * (x2 - x1) + x1);
+            // board[gap][halfway_y].type = CellType.EMPTY;
+
+            if (Math.random() > 0.5) {
+                await recursive_subdivision(
+                    x1,
+                    halfway_y,
+                    x2,
+                    y2,
+                    get_orientation(),
+                ).then(() =>
+                    recursive_subdivision(
+                        x1,
+                        y1,
+                        x2,
+                        halfway_y,
+                        get_orientation(),
+                    ),
+                );
+            } else {
+                await recursive_subdivision(
+                    x1,
+                    y1,
+                    x2,
+                    halfway_y,
+                    get_orientation(),
+                ).then(() =>
+                    recursive_subdivision(
+                        x1,
+                        halfway_y,
+                        x2,
+                        y2,
+                        get_orientation(),
+                    ),
+                );
             }
         }
     }
 
     async function generate_maze(cell: Cell) {
+        // fill everything in first so that it can be cut through
+
         function get_neighbors_maze(cell: Cell) {
             let x = cell.x;
             let y = cell.y;
@@ -265,7 +348,7 @@
             let neighbors = [];
 
             for (const [x, y] of chord_pairs) {
-                if (board[x] && board[y] && board[x][y].visited === false) {
+                if (board[x] && board[y] && board[x][y].visited == false) {
                     neighbors.push(board[x][y]);
                 }
             }
@@ -275,19 +358,17 @@
         cell.visited = true;
         board[cell.x][cell.y].type = CellType.EMPTY;
         let neighbors = get_neighbors_maze(cell);
-        while (neighbors.length > 0 && !stop) {
+        while (neighbors.length > 0) {
             const neighbor =
                 neighbors[Math.floor(Math.random() * neighbors.length)];
             current = neighbor;
             remove_ajoining_wall(cell, neighbor);
-            if (!stop) {
-                board = board;
-                if (speed > 0) {
-                    await new Promise((r) => setTimeout(r, speed));
-                    await generate_maze(neighbor);
-                } else {
-                    generate_maze(neighbor);
-                }
+            board = [...board];
+            if (speed > 0) {
+                await new Promise((r) => setTimeout(r, speed));
+                await generate_maze(neighbor);
+            } else {
+                generate_maze(neighbor);
             }
 
             neighbors = get_neighbors_maze(cell);
@@ -298,6 +379,8 @@
         switch (cell.type) {
             case CellType.START:
                 return "bg-green-400";
+            case CellType.WEIGHT:
+                return "bg-gray-400";
             case CellType.END:
                 return "bg-red-400";
             case CellType.WALL:
@@ -310,12 +393,6 @@
                 return "bg-blue-400";
         }
     }
-
-    let placing: CellType = CellType.WALL;
-    let down = false;
-    let gone: Cell;
-    let start: Cell | null = null;
-    let end: Cell | null = null;
 
     function place_start(cell: Cell) {
         // remove all other starts
@@ -350,55 +427,198 @@
         end = cell;
         board = board;
     }
+
+    function bubble(node: HTMLElement, { duration }: { duration: number }) {
+        return {
+            duration,
+            css: (t: number) => {
+                return `transform: scale(${t});`;
+            },
+        };
+    }
+
+    function bubble_color(
+        node: HTMLElement,
+        { duration }: { duration: number },
+    ) {
+        return {
+            duration,
+            css: (t: number) => {
+                const r = 90 * t + 101;
+                const g = 19 * t + 200;
+                const b = 4 * t + 240;
+
+                return `
+					transform: scale(${t});
+                    border-radius: ${(1 - t) * 100}%;
+                    background-color: rgb(${r}, ${g}, ${b});
+					opacity: ${t + 0.5};`;
+            },
+        };
+    }
 </script>
 
 <main
     class="w-screen h-screen flex bg-white/70 justify-center items-center flex-col gap-2"
 >
     <div class="flex flex-col gap-2">
-        <span class="gap-4 flex flex-row-reverse border-2 rounded-lg p-2">
+        <span class="gap-2 flex flex-row-reverse border-2 rounded-lg p-2">
+            <!-- <button -->
+            <!--     class="p-2 rounded-md shadow-md bg-red-600 font-mono text-center text-white" -->
+            <!--     on:click={() => (stop = true)}>stop</button -->
+            <!-- > -->
+
             <button
-                class="p-2 rounded-md shadow-md bg-red-600 font-mono text-center text-white"
-                on:click={() => (stop = true)}>Stop</button
+                class="flex items-center justify-center text-3xl text-white bg-emerald-500 p-2 rounded-md shadow-sm hover:brightness-105 cursor-pointer"
+                on:click={() => (settings = !settings)}
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="1em"
+                    height="1em"
+                    viewBox="0 0 24 24"
+                    {...$$props}
+                    ><path
+                        fill="currentColor"
+                        d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z"
+                    /></svg
+                >
+            </button>
+
+            {#if settings}
+                <div
+                    class="grid grid-flow-row absolute bg-white border-2 gap-2 p-2 rounded-md mt-16 -mr-3 h-22 z-20"
+                >
+                    <button
+                        class={`p-2 rounded-md shadow-md bg-orange-600 font-mono text-center text-white ${speed == 0 && "opacity-30"}`}
+                        on:click={() =>
+                            speed == 0 ? (speed = 1) : (speed = 0)}
+                        >animate</button
+                    >
+                    <button
+                        class={`p-2 rounded-md shadow-md bg-green-600 font-mono text-center text-white ${!allow_diagonal && "opacity-30"}`}
+                        on:click={() => (allow_diagonal = !allow_diagonal)}
+                        >corner cut</button
+                    >
+                </div>
+            {/if}
+            <button
+                class={`${$running && "bg-gray-300"} p-2 rounded-md shadow-md bg-black/30 font-mono text-center text-white bg-emerald-500 hover:brightness-110 px-6`}
+                on:click={() => {
+                    if (!$running) {
+                        clear_board();
+                    }
+                }}>Clear</button
             >
             <button
-                class={`p-2 rounded-md shadow-md bg-orange-600 font-mono text-center text-white ${speed == 0 && "opacity-30"}`}
-                on:click={() => (speed == 0 ? (speed = 1) : (speed = 0))}
-                >animate</button
+                class={`p-2 rounded-md shadow-md bg-green-500 font-mono text-center text-white transition-all duration-200 hover:brightness-110 cursor-pointer mx-auto px-10 ${
+                    start && end && !$running ? "bg-green-500" : "bg-gray-300"
+                }`}
+                on:click={async () => {
+                    if (start && end && !$running) {
+                        running.set(true);
+                        for (const row of board) {
+                            for (const cell of row) {
+                                cell.visited = false;
+                            }
+                        }
+                        await dijkstra_pathfind(start, end).then(() =>
+                            running.set(false),
+                        );
+                    }
+                }}>find</button
             >
-            <button
-                class={`p-2 rounded-md shadow-md bg-green-600 font-mono text-center text-white ${!allow_diagonal && "opacity-30"}`}
-                on:click={() => (allow_diagonal = !allow_diagonal)}
-                >corner cut</button
-            >
+            <span class="flex h-full">
+                <button
+                    class={`p-2 rounded-md shadow-md font-mono text-center text-white bg-emerald-500 hover:brightness-110 cursor-pointer pl-4 flex flex-row items-center justify-center gap-1 ${$running && "bg-gray-300"}`}
+                    on:click={() => {
+                        if (!$running) mazes = !mazes;
+                    }}
+                    >mazes
+
+                    <span class="text-3xl">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="1em"
+                            height="1em"
+                            viewBox="0 0 24 24"
+                            {...$$props}
+                            ><path
+                                fill="currentColor"
+                                d="m12 15.4l-6-6L7.4 8l4.6 4.6L16.6 8L18 9.4z"
+                            /></svg
+                        >
+                    </span>
+                </button>
+                {#if mazes}
+                    <div
+                        in:bubble={{ duration: 100 }}
+                        class="grid grid-flow-row absolute bg-white border-2 gap-2 p-2 rounded-md mt-16 h-22 z-20 -ml-3"
+                    >
+                        <button
+                            class="p-2 rounded-md shadow-md font-mono text-center text-white bg-emerald-500 hover:brightness-110 cursor-pointer px-6"
+                            on:click={async () => {
+                                // use this to reset the board, making it all wall so that it can be cut through
+                                mazes = false;
+                                if (!$running) {
+                                    $running = !$running;
+                                    animation_lock = true;
+                                    for (const row of board) {
+                                        for (const cell of row) {
+                                            cell.visited = false;
+                                            cell.type = CellType.WALL;
+                                        }
+                                    }
+                                    board = board;
+                                    await generate_maze(
+                                        board[Math.floor(size / 2)][
+                                            Math.floor(size / 2)
+                                        ],
+                                    );
+                                    animation_lock = false;
+                                    $running = !$running;
+                                }
+                            }}>standard</button
+                        >
+                        <button
+                            class="p-2 rounded-md shadow-md font-mono text-center text-white bg-emerald-500 hover:brightness-110 cursor-pointer px-6"
+                            on:click={async () => {
+                                // use this to reset the board, making it all wall so that it can be cut through
+                                mazes = false;
+                                if (!$running) {
+                                    $running = !$running;
+                                    clear_board();
+                                    await recursive_subdivision(
+                                        0,
+                                        0,
+                                        size,
+                                        size,
+                                        Math.random() > 0.5
+                                            ? "vertical"
+                                            : "horizontal",
+                                    ).then(() => running.set(false));
+                                }
+                            }}>recursive</button
+                        >
+                    </div>
+                {/if}
+            </span>
         </span>
         <div class="grid item-center justify-center grid-flow-col">
             <ol
                 class="flex flex-col mr-2 gap-2 relative top-0 left-0 border-2 rounded-md p-2"
             >
-                <button
-                    class="p-2 rounded-md shadow-md bg-blue-600/80 font-mono text-center text-white"
-                    on:click={() => {
-                        board = board.map((row) =>
-                            row.map((cell) => {
-                                cell.type = CellType.WALL;
-                                cell.visited = false;
-                                return cell;
-                            }),
-                        );
-
-                        generate_maze(
-                            board[Math.floor(size / 2)][Math.floor(size / 2)],
-                        );
-                        // recursive_subdivision(0, 0, size, size, 4);
-                    }}>maze</button
-                >
                 <li
                     class="flex flex-col p-2 rounded-lg gap-2 shadow-md border-2"
                 >
                     <button
                         class={`p-2 rounded-md shadow-md bg-black text-white font-mono text-center duration-200 ${placing == CellType.WALL && "scale-110"}`}
                         on:click={() => (placing = CellType.WALL)}>wall</button
+                    >
+                    <button
+                        class={`p-2 rounded-md shadow-md bg-gray-500 font-mono text-center text-white duration-200/50 ${placing == CellType.WEIGHT && "scale-110"}`}
+                        on:click={() => (placing = CellType.WEIGHT)}
+                        >weight</button
                     >
                     <button
                         class={`p-2 rounded-md shadow-md bg-green-400 font-mono text-center text-white duration-200 ${placing == CellType.START && "scale-110"}`}
@@ -415,16 +635,6 @@
                         >erase</button
                     >
                 </li>
-                <button
-                    class="p-2 rounded-md shadow-md bg-purple-400 font-mono text-center text-white"
-                    on:click={() =>
-                        start && end && dijkstra_pathfind(start, end)}
-                    >find</button
-                >
-                <button
-                    class="p-2 rounded-md shadow-md bg-black/30 font-mono text-center text-white"
-                    on:click={() => clear_board()}>Clear</button
-                >
             </ol>
 
             <div
@@ -435,18 +645,20 @@
                     {#each row as cell, y}
                         <button
                             on:mousedown={() => {
-                                down = true;
-                                if (placing === CellType.START) {
-                                    place_start(cell);
-                                } else if (placing === CellType.END) {
-                                    place_end(cell);
-                                } else {
-                                    cell.type = placing;
+                                if (!$running) {
+                                    down = true;
+                                    if (placing === CellType.START) {
+                                        place_start(cell);
+                                    } else if (placing === CellType.END) {
+                                        place_end(cell);
+                                    } else {
+                                        cell.type = placing;
+                                    }
                                 }
                             }}
                             on:mouseup={() => (down = false)}
                             on:mouseenter={() => {
-                                if (down) {
+                                if (down && !$running) {
                                     if (placing === CellType.START) {
                                         place_start(cell);
                                     } else if (placing === CellType.END) {
@@ -458,19 +670,24 @@
                             }}
                             class={`border-[2px] text-xs border-black/5 -m-[2px] w-[18px] h-[18px] grid items-center place-items-center relative`}
                         >
-                            {#if cell.type !== CellType.EMPTY}
+                            {#if cell.type == CellType.WALL || cell.type == CellType.START || cell.type == CellType.END || cell.type == CellType.PATH || cell.type == CellType.WEIGHT}
                                 <span
-                                    class={`${get_color(cell)} w-[18px] h-[18px]`}
-                                    in:scale|local={{
+                                    class={`${get_color(cell)} w-[18px] h-[18px] text-white text-[7px] `}
+                                    in:bubble|local={{
                                         duration: 200,
-                                        delay: 20,
-                                        opacity: 1,
-                                        start: 0.4,
+                                    }}
+                                >
+                                </span>
+                            {:else if cell.type == CellType.SCANNED}
+                                <span
+                                    class={` w-[18px] h-[18px] ${get_color(cell)}`}
+                                    in:bubble_color|local={{
+                                        duration: 450,
                                     }}
                                 >
                                 </span>
                             {:else}
-                                <span class="bg-white w-[18px] h-[18px]">
+                                <span class={`bg-white w-[18px] h-[18px]`}>
                                 </span>
                             {/if}
                         </button>
