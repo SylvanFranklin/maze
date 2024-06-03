@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Cell, CellType } from "$lib/types";
     import { writable } from "svelte/store";
-    let size = 60;
+    let size = 61;
     let settings = false;
     let mazes = false;
     let running = writable(false);
@@ -218,11 +218,11 @@
         function get_orientation() {
             if (x2 - x1 > y2 - y1) {
                 return "vertical";
-            } else if (x2 - x1 < y2 - y1) {
+            } else /* (x2 - x1 < y2 - y1)  */{
                 return "horizontal";
-            } else {
-                return Math.random() > 5 ? "vertical" : "horizontal";
-            }
+            } 
+        
+
         }
 
         let halfway_x = Math.floor((x2 + x1) / 2);
@@ -245,20 +245,24 @@
                 }
             }
 
-            // let gap = Math.floor(Math.random() * (y2 - y1) + y1);
-            // board[halfway_x][gap].type = CellType.EMPTY;
+            let gap = Math.floor(Math.random() * (y2 - y1) + y1);
+            // can't be center, or the edges
+            while (gap == halfway_y || gap == y1 || gap == y2) {
+                gap = Math.floor(Math.random() * (y2 - y1) + y1);
+            }
+            board[halfway_x][gap].type = CellType.EMPTY;
 
             if (Math.random() > 0.5) {
                 await recursive_subdivision(
                     halfway_x,
-                    y1,
+                    y1+1,
                     x2,
                     y2,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
                         x1,
-                        y1,
+                        y1+1,
                         halfway_x,
                         y2,
                         get_orientation(),
@@ -267,14 +271,14 @@
             } else {
                 await recursive_subdivision(
                     x1,
-                    y1,
+                    y1+1,
                     halfway_x,
                     y2,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
                         halfway_x,
-                        y1,
+                        y1+1,
                         x2,
                         y2,
                         get_orientation(),
@@ -293,19 +297,23 @@
                 }
             }
 
-            // let gap = Math.floor(Math.random() * (x2 - x1) + x1);
-            // board[gap][halfway_y].type = CellType.EMPTY;
+            // make a gap anything not in the middle
+            let gap = Math.floor(Math.random() * (x2 - x1) + x1);
+            while (gap == halfway_x || gap == x1 || gap == x2) {
+                gap = Math.floor(Math.random() * (x2 - x1) + x1);
+            }
+            board[gap][halfway_y].type = CellType.EMPTY;
 
             if (Math.random() > 0.5) {
                 await recursive_subdivision(
-                    x1,
+                    x1+1,
                     halfway_y,
                     x2,
                     y2,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
-                        x1,
+                        x1+1,
                         y1,
                         x2,
                         halfway_y,
@@ -314,14 +322,14 @@
                 );
             } else {
                 await recursive_subdivision(
-                    x1,
+                    x1+1,
                     y1,
                     x2,
                     halfway_y,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
-                        x1,
+                        x1+1,
                         halfway_y,
                         x2,
                         y2,
