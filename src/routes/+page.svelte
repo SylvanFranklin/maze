@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Cell, CellType } from "$lib/types";
     import { writable } from "svelte/store";
-    let size = 61;
+    let size = 45;
     let settings = false;
     let mazes = false;
     let running = writable(false);
