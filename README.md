@@ -6,4 +6,4 @@ A simple learning project I built with sveltekit. I have since greatly improved 
 
 ## Stack
 
-Tailwind, Typescript, and Svelte is pretty much the extent of it. Hosted on firebase at [https://sylvansmaze.web.app]
+Tailwind, Typescript, and Svelte is pretty much the extent of it. Hosted on firebase at https://sylvansmaze.web.app
