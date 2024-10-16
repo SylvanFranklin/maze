@@ -218,11 +218,9 @@
         function get_orientation() {
             if (x2 - x1 > y2 - y1) {
                 return "vertical";
-            } else /* (x2 - x1 < y2 - y1)  */{
+            } /* (x2 - x1 < y2 - y1)  */ else {
                 return "horizontal";
-            } 
-        
-
+            }
         }
 
         let halfway_x = Math.floor((x2 + x1) / 2);
@@ -255,14 +253,14 @@
             if (Math.random() > 0.5) {
                 await recursive_subdivision(
                     halfway_x,
-                    y1+1,
+                    y1 + 1,
                     x2,
                     y2,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
                         x1,
-                        y1+1,
+                        y1 + 1,
                         halfway_x,
                         y2,
                         get_orientation(),
@@ -271,14 +269,14 @@
             } else {
                 await recursive_subdivision(
                     x1,
-                    y1+1,
+                    y1 + 1,
                     halfway_x,
                     y2,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
                         halfway_x,
-                        y1+1,
+                        y1 + 1,
                         x2,
                         y2,
                         get_orientation(),
@@ -306,14 +304,14 @@
 
             if (Math.random() > 0.5) {
                 await recursive_subdivision(
-                    x1+1,
+                    x1 + 1,
                     halfway_y,
                     x2,
                     y2,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
-                        x1+1,
+                        x1 + 1,
                         y1,
                         x2,
                         halfway_y,
@@ -322,14 +320,14 @@
                 );
             } else {
                 await recursive_subdivision(
-                    x1+1,
+                    x1 + 1,
                     y1,
                     x2,
                     halfway_y,
                     get_orientation(),
                 ).then(() =>
                     recursive_subdivision(
-                        x1+1,
+                        x1 + 1,
                         halfway_y,
                         x2,
                         y2,
