@@ -1,7 +1,9 @@
 <script lang="ts">
     import { Cell, CellType } from "$lib/types";
+    import { get_color } from "$lib/index";
     import { writable } from "svelte/store";
-    let size = 45;
+
+    let size = 47;
     let settings = false;
     let mazes = false;
     let running = writable(false);
@@ -34,26 +36,6 @@
         start = null;
         end = null;
         board = [...board];
-    }
-
-    function get_neighbors_maze(cell: Cell) {
-        let x = cell.x;
-        let y = cell.y;
-        const chord_pairs = [
-            [x - 2, y],
-            [x, y - 2],
-            [x, y + 2],
-            [x + 2, y],
-        ];
-
-        let neighbors = [];
-
-        for (const [x, y] of chord_pairs) {
-            if (board[x] && board[y] && board[x][y].visited === false) {
-                neighbors.push(board[x][y]);
-            }
-        }
-        return neighbors;
     }
 
     // make sure that current, is not an edge cell
@@ -213,128 +195,95 @@
         y1: number,
         x2: number,
         y2: number,
-        orientation: "vertical" | "horizontal",
+        preferredOrientation: "vertical" | "horizontal",
     ) {
-        function get_orientation() {
-            if (x2 - x1 > y2 - y1) {
-                return "vertical";
-            } /* (x2 - x1 < y2 - y1)  */ else {
-                return "horizontal";
-            }
-        }
-
-        let halfway_x = Math.floor((x2 + x1) / 2);
-        let halfway_y = Math.floor((y2 + y1) / 2);
-
-        // once the resolution is fine enough we can just return out
+        // Determine if we should stop subdividing
         if (x2 - x1 < 4 || y2 - y1 < 4) {
             return;
         }
 
-        if (orientation == "vertical") {
-            for (let i = y1; i < y2; i++) {
-                board[halfway_x][i].type = CellType.WALL;
-                if (!animation_lock) {
-                    if (i % 3 == 0) {
-                        await new Promise((r) => setTimeout(r, speed)).then(
-                            () => (board = [...board]),
-                        );
-                    }
-                }
-            }
-
-            let gap = Math.floor(Math.random() * (y2 - y1) + y1);
-            // can't be center, or the edges
-            while (gap == halfway_y || gap == y1 || gap == y2) {
-                gap = Math.floor(Math.random() * (y2 - y1) + y1);
-            }
-            board[halfway_x][gap].type = CellType.EMPTY;
-
-            if (Math.random() > 0.5) {
-                await recursive_subdivision(
-                    halfway_x,
-                    y1 + 1,
-                    x2,
-                    y2,
-                    get_orientation(),
-                ).then(() =>
-                    recursive_subdivision(
-                        x1,
-                        y1 + 1,
-                        halfway_x,
-                        y2,
-                        get_orientation(),
-                    ),
-                );
-            } else {
-                await recursive_subdivision(
-                    x1,
-                    y1 + 1,
-                    halfway_x,
-                    y2,
-                    get_orientation(),
-                ).then(() =>
-                    recursive_subdivision(
-                        halfway_x,
-                        y1 + 1,
-                        x2,
-                        y2,
-                        get_orientation(),
-                    ),
-                );
-            }
+        // Intelligently choose orientation
+        let orientation: "vertical" | "horizontal";
+        if (preferredOrientation) {
+            orientation = preferredOrientation;
         } else {
-            for (let i = x1; i < x2; i++) {
-                board[i][halfway_y].type = CellType.WALL;
-                if (!animation_lock) {
-                    if (i % 3 == 0) {
-                        await new Promise((r) => setTimeout(r, speed)).then(
-                            () => (board = [...board]),
-                        );
-                    }
+            orientation = x2 - x1 > y2 - y1 ? "vertical" : "horizontal";
+        }
+
+        if (orientation === "vertical") {
+            // Choose a vertical line to divide the space
+            const divideX = Math.floor((x1 + x2) / 2);
+
+            // Create a wall along this vertical line
+            for (let y = y1; y < y2; y++) {
+                board[divideX][y].type = CellType.WALL;
+
+                // Optional: add animation if not locked
+                if (!animation_lock && y % 3 === 0) {
+                    await new Promise((r) => setTimeout(r, speed)).then(
+                        () => (board = [...board]),
+                    );
                 }
             }
 
-            // make a gap anything not in the middle
-            let gap = Math.floor(Math.random() * (x2 - x1) + x1);
-            while (gap == halfway_x || gap == x1 || gap == x2) {
-                gap = Math.floor(Math.random() * (x2 - x1) + x1);
-            }
-            board[gap][halfway_y].type = CellType.EMPTY;
+            // Choose a gap in the wall (ensuring it's not at the edges)
+            const gapY = Math.floor(Math.random() * (y2 - y1 - 2)) + y1 + 1;
+            board[divideX][gapY].type = CellType.EMPTY;
 
-            if (Math.random() > 0.5) {
-                await recursive_subdivision(
-                    x1 + 1,
-                    halfway_y,
-                    x2,
+            // Recursively subdivide the two resulting spaces
+            await Promise.all([
+                recursive_subdivision(
+                    x1,
+                    y1,
+                    divideX,
                     y2,
-                    get_orientation(),
-                ).then(() =>
-                    recursive_subdivision(
-                        x1 + 1,
-                        y1,
-                        x2,
-                        halfway_y,
-                        get_orientation(),
-                    ),
-                );
-            } else {
-                await recursive_subdivision(
-                    x1 + 1,
+                    Math.random() > 0.5 ? "vertical" : "horizontal",
+                ),
+                recursive_subdivision(
+                    divideX,
                     y1,
                     x2,
-                    halfway_y,
-                    get_orientation(),
-                ).then(() =>
-                    recursive_subdivision(
-                        x1 + 1,
-                        halfway_y,
-                        x2,
-                        y2,
-                        get_orientation(),
-                    ),
-                );
+                    y2,
+                    Math.random() > 0.5 ? "vertical" : "horizontal",
+                ),
+            ]);
+        } else {
+            // Choose a horizontal line to divide the space
+            const divideY = Math.floor((y1 + y2) / 2);
+
+            // Create a wall along this horizontal line
+            for (let x = x1; x < x2; x++) {
+                board[x][divideY].type = CellType.WALL;
+
+                // Optional: add animation if not locked
+                if (!animation_lock && x % 3 === 0) {
+                    await new Promise((r) => setTimeout(r, speed)).then(
+                        () => (board = [...board]),
+                    );
+                }
             }
+
+            // Choose a gap in the wall (ensuring it's not at the edges)
+            const gapX = Math.floor(Math.random() * (x2 - x1 - 2)) + x1 + 1;
+            board[gapX][divideY].type = CellType.EMPTY;
+
+            // Recursively subdivide the two resulting spaces
+            await Promise.all([
+                recursive_subdivision(
+                    x1,
+                    y1,
+                    x2,
+                    divideY,
+                    Math.random() > 0.5 ? "horizontal" : "vertical",
+                ),
+                recursive_subdivision(
+                    x1,
+                    divideY,
+                    x2,
+                    y2,
+                    Math.random() > 0.5 ? "horizontal" : "vertical",
+                ),
+            ]);
         }
     }
 
@@ -378,25 +327,6 @@
             }
 
             neighbors = get_neighbors_maze(cell);
-        }
-    }
-
-    function get_color(cell: Cell) {
-        switch (cell.type) {
-            case CellType.START:
-                return "bg-green-400";
-            case CellType.WEIGHT:
-                return "bg-gray-400";
-            case CellType.END:
-                return "bg-red-400";
-            case CellType.WALL:
-                return "bg-black";
-            case CellType.EMPTY:
-                return "bg-white";
-            case CellType.SCANNED:
-                return "bg-blue-200";
-            case CellType.PATH:
-                return "bg-blue-400";
         }
     }
 
